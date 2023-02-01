@@ -32,7 +32,8 @@
 
 #include "Barrier.h"
 #include "LLVMUtils.h"
-#include "VariableUniformityAnalysis.h"
+#include "UniformityAnalysis.hpp"
+#include "VectorizationInfo.hpp"
 #include "Workgroup.h"
 #include "WorkitemHandlerChooser.h"
 #include "pocl_llvm_api.h"
@@ -453,13 +454,13 @@ public:
           &ContInstReplicaMap,
       llvm::ArrayRef<SubCFG> SubCFGs, llvm::Instruction *AllocaIP,
       llvm::Value *ReqdArrayElements,
-      pocl::VariableUniformityAnalysis &VecInfo);
+      VectorizationInfo &VecInfo);
   void fixSingleSubCfgValues(
       llvm::DominatorTree &DT,
       const llvm::DenseMap<llvm::Instruction *, llvm::AllocaInst *>
           &RemappedInstAllocaMap,
       llvm::Value *ReqdArrayElements,
-      pocl::VariableUniformityAnalysis &VecInfo);
+      VectorizationInfo &VecInfo);
 
   void print() const;
   void removeDeadPhiBlocks(
@@ -651,7 +652,7 @@ void SubCFG::removeDeadPhiBlocks(
 }
 
 // Requires a uniformity analysis that is able to determine contiguous values
-#if 0
+
 // check if a contiguous value can be tracked back to only uniform values and
 // the wi-loop indvar currently cannot track back the value through PHI nodes.
 bool dontArrayifyContiguousValues(
@@ -661,7 +662,7 @@ bool dontArrayifyContiguousValues(
                    llvm::SmallVector<llvm::Instruction *, 8>>
         &ContInstReplicaMap,
     llvm::Instruction *AllocaIP, llvm::Value* ReqdArrayElements, llvm::Value *IndVar,
-    pocl::VariableUniformityAnalysis &VecInfo) {
+    VectorizationInfo &VecInfo) {
   // is cont indvar
   if (VecInfo.isPinned(I))
     return true;
@@ -709,7 +710,6 @@ bool dontArrayifyContiguousValues(
   ContInstReplicaMap.insert({&I, ContiguousInsts});
   return true;
 }
-#endif
 
 // creates array allocas for values that are identified as spanning multiple
 // subcfgs
@@ -720,7 +720,7 @@ void SubCFG::arrayifyMultiSubCfgValues(
                    llvm::SmallVector<llvm::Instruction *, 8>>
         &ContInstReplicaMap,
     llvm::ArrayRef<SubCFG> SubCFGs, llvm::Instruction *AllocaIP,
-    llvm::Value *ReqdArrayElements, pocl::VariableUniformityAnalysis &VecInfo) {
+    llvm::Value *ReqdArrayElements, VectorizationInfo &VecInfo) {
   llvm::SmallPtrSet<llvm::BasicBlock *, 16> OtherCFGBlocks;
   for (auto &Cfg : SubCFGs) {
     if (&Cfg != this)
@@ -753,9 +753,10 @@ void SubCFG::arrayifyMultiSubCfgValues(
             continue;
           }
 
+        auto Shape = VecInfo.getVectorShape(I);
 #ifndef CBS_NO_PHIS_IN_SPLIT
         // if value is uniform, just store to 1-wide alloca
-        if (VecInfo.isUniform(I.getFunction(), &I)) {
+        if (Shape.isUniform()) {
 #ifdef DEBUG_SUBCFG_FORMATION
           llvm::errs()
               << "[SubCFG] Value uniform, store to single element alloca " << I
@@ -763,13 +764,13 @@ void SubCFG::arrayifyMultiSubCfgValues(
 #endif
           auto *Alloca = arrayifyInstruction(AllocaIP, &I, ContIdx_, nullptr);
           InstAllocaMap.insert({&I, Alloca});
-          VecInfo.setUniform(I.getFunction(), Alloca);
+          VecInfo.setVectorShape(*Alloca, VectorShape::uni());
           continue;
         }
 #endif
+        // Requires a uniformity analysis that is able to determine contiguous
+        // values
 
-// Requires a uniformity analysis that is able to determine contiguous values
-#if 0
         // if contiguous, and can be recalculated, don't arrayify but store
         // uniform values and insts required for recalculation
         if (Shape.isContiguous()) {
@@ -782,11 +783,11 @@ void SubCFG::arrayifyMultiSubCfgValues(
             continue;
           }
         }
-#endif
         // create wide alloca and store the value
         auto *Alloca =
             arrayifyInstruction(AllocaIP, &I, ContIdx_, ReqdArrayElements);
         InstAllocaMap.insert({&I, Alloca});
+        VecInfo.setVectorShape(*Alloca, Shape);
       }
     }
   }
@@ -989,7 +990,7 @@ void SubCFG::fixSingleSubCfgValues(
     llvm::DominatorTree &DT,
     const llvm::DenseMap<llvm::Instruction *, llvm::AllocaInst *>
         &RemappedInstAllocaMap,
-    llvm::Value *ReqdArrayElements, pocl::VariableUniformityAnalysis &VecInfo) {
+    llvm::Value *ReqdArrayElements, VectorizationInfo &VecInfo) {
 
   auto *AllocaIP = LoadBB_->getParent()->getEntryBlock().getTerminator();
   auto *LoadIP = LoadBB_->getTerminator();
@@ -1062,6 +1063,7 @@ void SubCFG::fixSingleSubCfgValues(
 #endif
             Alloca =
                 arrayifyInstruction(AllocaIP, OPI, ContIdx_, ReqdArrayElements);
+            VecInfo.setVectorShape(*Alloca, VecInfo.getVectorShape(I));
           }
 
 #ifdef CBS_NO_PHIS_IN_SPLIT
@@ -1263,7 +1265,7 @@ bool isAllocaSubCfgInternal(llvm::AllocaInst *Alloca,
 void arrayifyAllocas(llvm::BasicBlock *EntryBlock, llvm::DominatorTree &DT,
                      std::vector<SubCFG> &SubCfgs,
                      llvm::Value *ReqdArrayElements,
-                     pocl::VariableUniformityAnalysis &VecInfo) {
+                     VectorizationInfo &VecInfo) {
   auto *MDAlloca = llvm::MDNode::get(
       EntryBlock->getContext(),
       {llvm::MDString::get(EntryBlock->getContext(), "poclLoopState")});
@@ -1349,9 +1351,36 @@ getBarrierIds(llvm::BasicBlock *Entry,
       Barriers.insert({BB, BarrierId++});
   return Barriers;
 }
+
+std::unique_ptr<RegionImpl>
+getRegion(llvm::Function &F, const llvm::LoopInfo &LI,
+          llvm::ArrayRef<llvm::BasicBlock *> Blocks) {
+  return std::unique_ptr<RegionImpl>{new FunctionRegion(F, Blocks)};
+}
+
+// calculate uniformity analysis
+VectorizationInfo getVectorizationInfo(llvm::Function &F, Region &R,
+                                       llvm::LoopInfo &LI,
+                                       llvm::DominatorTree &DT,
+                                       llvm::PostDominatorTree &PDT,
+                                       size_t Dim) {
+  VectorizationInfo VecInfo{F, R};
+  // seed varyingness
+  for (size_t D = 0; D < Dim - 1; ++D) {
+    VecInfo.setPinnedShape(*getLoadForGlobalVariable(F, LocalIdGlobalNames[D]),
+                           VectorShape::cont());
+  }
+  VecInfo.setPinnedShape(
+      *getLoadForGlobalVariable(F, LocalIdGlobalNames[Dim - 1]),
+      VectorShape::cont());
+
+  VectorizationAnalysis VecAna{VecInfo, LI, DT, PDT};
+  VecAna.analyze();
+  return VecInfo;
+}
+
 void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
-                 llvm::PostDominatorTree &PDT,
-                 pocl::VariableUniformityAnalysis &VUA) {
+                 llvm::PostDominatorTree &PDT) {
 #ifdef DEBUG_SUBCFG_FORMATION
   F.viewCFG();
 #endif
@@ -1395,18 +1424,13 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
   // non-entry block Allocas are considered broken, move to entry.
   moveAllocasToEntry(F, Blocks);
 
-// kept for simple reenabling of more advanced uniformity analysis
-#if 0
+  // kept for simple reenabling of more advanced uniformity analysis
   auto RImpl = getRegion(F, LI, Blocks);
   pocl::Region R{*RImpl};
   auto VecInfo = getVectorizationInfo(F, R, LI, DT, PDT, Dim);
-#endif
 
   llvm::SmallPtrSet<llvm::BasicBlock *, 2> ExitingBlocks;
-  for (auto *BB : Blocks) {
-    if (BB->getTerminator()->getNumSuccessors() == 0)
-      ExitingBlocks.insert(BB);
-  }
+  R.getEndingBlocks(ExitingBlocks);
 
   if (ExitingBlocks.empty()) {
     llvm::errs() << "[SubCFG] Invalid kernel! No kernel exits!\n";
@@ -1426,9 +1450,7 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
   llvm::Instruction *IndVar = Builder.CreateLoad(
       IndVarT, llvm::UndefValue::get(llvm::PointerType::get(IndVarT, 0)));
   // kept for simple reenabling of more advanced uniformity analysis
-#if 0
   VecInfo.setPinnedShape(*IndVar, pocl::VectorShape::cont());
-#endif
 
   // create subcfgs
   std::vector<SubCFG> SubCFGs;
@@ -1450,7 +1472,7 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
   for (auto &Cfg : SubCFGs)
     Cfg.arrayifyMultiSubCfgValues(
         InstAllocaMap, BaseInstAllocaMap, InstContReplicaMap, SubCFGs,
-        F.getEntryBlock().getTerminator(), ReqdArrayElements, VUA);
+        F.getEntryBlock().getTerminator(), ReqdArrayElements, VecInfo);
 
   llvm::DenseMap<llvm::Instruction *, llvm::AllocaInst *> RemappedInstAllocaMap;
   for (auto &Cfg : SubCFGs) {
@@ -1468,11 +1490,11 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
   llvm::removeUnreachableBlocks(F);
 
   DT.recalculate(F);
-  arrayifyAllocas(&F.getEntryBlock(), DT, SubCFGs, ReqdArrayElements, VUA);
+  arrayifyAllocas(&F.getEntryBlock(), DT, SubCFGs, ReqdArrayElements, VecInfo);
 
   for (auto &Cfg : SubCFGs) {
     Cfg.fixSingleSubCfgValues(DT, RemappedInstAllocaMap, ReqdArrayElements,
-                              VUA);
+                              VecInfo);
   }
 
   IndVar->eraseFromParent();
@@ -1565,8 +1587,6 @@ void SubCFGFormationPassLegacy::getAnalysisUsage(
   AU.addRequired<llvm::LoopInfoWrapperPass>();
   AU.addRequiredTransitive<llvm::DominatorTreeWrapperPass>();
   AU.addRequiredTransitive<llvm::PostDominatorTreeWrapperPass>();
-  AU.addRequired<VariableUniformityAnalysis>();
-  AU.addPreserved<VariableUniformityAnalysis>();
   AU.addRequired<WorkitemHandlerChooser>();
   AU.addPreserved<WorkitemHandlerChooser>();
 }
@@ -1589,9 +1609,8 @@ bool SubCFGFormationPassLegacy::runOnFunction(llvm::Function &F) {
   auto &PDT =
       getAnalysis<llvm::PostDominatorTreeWrapperPass>().getPostDomTree();
   auto &LI = getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo();
-  auto &VUA = getAnalysis<pocl::VariableUniformityAnalysis>();
 
-  formSubCfgs(F, LI, DT, PDT, VUA);
+  formSubCfgs(F, LI, DT, PDT);
 
   for (auto *SL : LI.getLoopsInPreorder())
     if (llvm::findOptionMDForLoop(SL, MDKind::WorkItemLoop))
