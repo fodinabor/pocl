@@ -722,13 +722,17 @@ bool dontArrayifyContiguousValues(
   llvm::SmallPtrSet<llvm::Instruction *, 8> UniformValues;
   llvm::SmallVector<llvm::Instruction *, 8> ContiguousInsts;
   llvm::SmallPtrSet<llvm::Value *, 8> LookedAt;
+#ifdef DEBUG_SUBCFG_FORMATION
   llvm::errs() << "[SubCFG] IndVar: " << *IndVar << "\n";
+#endif
   WL.push_back(&I);
   while (!WL.empty()) {
     auto *WLValue = WL.pop_back_val();
     if (auto *WLI = llvm::dyn_cast<llvm::Instruction>(WLValue))
       for (auto *V : WLI->operand_values()) {
+#ifdef DEBUG_SUBCFG_FORMATION
         llvm::errs() << "[SubCFG] Considering: " << *V << "\n";
+#endif
 
         if (V == IndVar || VecInfo.isPinned(*V))
           continue;
@@ -748,12 +752,16 @@ bool dontArrayifyContiguousValues(
       }
   }
   for (auto *UI : UniformValues) {
+#ifdef DEBUG_SUBCFG_FORMATION
     llvm::errs() << "[SubCFG] UniValue to store: " << *UI << "\n";
+#endif
     if (BaseInstAllocaMap.lookup(UI))
       continue;
+#ifdef DEBUG_SUBCFG_FORMATION
     llvm::errs()
         << "[SubCFG] Store required uniform value to single element alloca "
         << I << "\n";
+#endif
     auto *Alloca = arrayifyInstruction(AllocaIP, UI, IndVar, 1);
     BaseInstAllocaMap.insert({UI, Alloca});
     VecInfo.setVectorShape(*Alloca, pocl::VectorShape::uni());
