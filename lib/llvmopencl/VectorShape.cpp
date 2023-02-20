@@ -56,7 +56,7 @@ align_t getAlignment(const Constant *c) {
   assert(isa<ConstantVector>(c));
   const ConstantVector *cv = cast<ConstantVector>(c);
 
-  if (!cv->getType()->getElementType()->isIntegerTy())
+  if (!cv->getType()->getElementType()->isIntegerTy() || cv->containsPoisonElement())
     return 1;
 
   assert(isa<ConstantInt>(cv->getOperand(0)));
