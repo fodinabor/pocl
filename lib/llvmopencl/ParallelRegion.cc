@@ -292,10 +292,11 @@ ParallelRegion::insertLocalIdInit(llvm::BasicBlock* Entry,
 
   Module *M = Entry->getParent()->getParent();
 
-  unsigned long address_bits;
+  uint64_t address_bits;
   getModuleIntMetadata(*M, "device_address_bits", address_bits);
 
-  llvm::Type *SizeT = IntegerType::get(M->getContext(), address_bits);
+  llvm::Type *SizeT =
+      IntegerType::get(M->getContext(), static_cast<unsigned>(address_bits));
 
   GlobalVariable *GVX = M->getGlobalVariable(POCL_LOCAL_ID_X_GLOBAL);
   if (GVX != NULL)

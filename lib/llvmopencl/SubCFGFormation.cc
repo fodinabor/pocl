@@ -233,10 +233,11 @@ void insertLocalIdInit(llvm::BasicBlock *Entry) {
 
   llvm::Module *M = Entry->getParent()->getParent();
 
-  unsigned long address_bits;
+  uint64_t address_bits;
   getModuleIntMetadata(*M, "device_address_bits", address_bits);
 
-  llvm::Type *SizeT = llvm::IntegerType::get(M->getContext(), address_bits);
+  llvm::Type *SizeT = llvm::IntegerType::get(
+      M->getContext(), static_cast<unsigned>(address_bits));
 
   llvm::GlobalVariable *GVX = M->getGlobalVariable(LocalIdGlobalNameX);
   if (GVX != NULL)
@@ -253,7 +254,7 @@ void insertLocalIdInit(llvm::BasicBlock *Entry) {
 
 // get the wg size values for the loop bounds
 llvm::SmallVector<llvm::Value *, 3>
-getLocalSizeValues(llvm::Function &F, llvm::ArrayRef<std::size_t> LocalSizes,
+getLocalSizeValues(llvm::Function &F, llvm::ArrayRef<uint64_t> LocalSizes,
                    bool DynSizes, int Dim) {
   auto &DL = F.getParent()->getDataLayout();
   llvm::IRBuilder<> Builder{F.getEntryBlock().getTerminator()};
@@ -384,7 +385,7 @@ class SubCFG {
   size_t Dim;
 
   llvm::BasicBlock *createExitWithID(
-      llvm::detail::DenseMapPair<llvm::BasicBlock *, unsigned long> BarrierPair,
+      llvm::detail::DenseMapPair<llvm::BasicBlock *, size_t> BarrierPair,
       llvm::BasicBlock *After, llvm::BasicBlock *TargetBB);
 
   void loadMultiSubCfgValues(
@@ -1356,7 +1357,7 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
   F.viewCFG();
 #endif
 
-  std::array<size_t, 3> LocalSizes;
+  std::array<uint64_t, 3> LocalSizes;
   getModuleIntMetadata(*F.getParent(), "WGLocalSizeX", LocalSizes[0]);
   getModuleIntMetadata(*F.getParent(), "WGLocalSizeY", LocalSizes[1]);
   getModuleIntMetadata(*F.getParent(), "WGLocalSizeZ", LocalSizes[2]);
@@ -1384,7 +1385,7 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
           ? Builder.CreateMul(LocalSize[0],
                               Builder.CreateMul(LocalSize[1], LocalSize[2]))
           : Builder.getInt32(std::accumulate(LocalSizes.cbegin(),
-                                             LocalSizes.cend(), 1,
+                                             LocalSizes.cend(), uint32_t{1},
                                              std::multiplies<>{}));
 
   std::vector<llvm::BasicBlock *> Blocks;

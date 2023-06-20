@@ -114,26 +114,26 @@ namespace pocl {
 
     // Copies of compilation parameters
     std::string KernelName;
-    unsigned long address_bits;
+    uint64_t address_bits;
     bool WGAssumeZeroGlobalOffset;
     bool WGDynamicLocalSize;
     bool DeviceUsingArgBufferLauncher;
     bool DeviceUsingGridLauncher;
     bool DeviceIsSPMD;
-    unsigned long WGLocalSizeX;
-    unsigned long WGLocalSizeY;
-    unsigned long WGLocalSizeZ;
-    unsigned long WGMaxGridDimWidth;
+    uint64_t WGLocalSizeX;
+    uint64_t WGLocalSizeY;
+    uint64_t WGLocalSizeZ;
+    uint64_t WGMaxGridDimWidth;
 
-    unsigned long DeviceGlobalASid;
-    unsigned long DeviceLocalASid;
-    unsigned long DeviceConstantASid;
-    unsigned long DeviceContextASid;
-    unsigned long DeviceArgsASid;
+    uint64_t DeviceGlobalASid;
+    uint64_t DeviceLocalASid;
+    uint64_t DeviceConstantASid;
+    uint64_t DeviceContextASid;
+    uint64_t DeviceArgsASid;
     bool DeviceSidePrintf;
     bool DeviceAllocaLocals;
-    unsigned long DeviceMaxWItemDim;
-    unsigned long DeviceMaxWItemSizes[3];
+    uint64_t DeviceMaxWItemDim;
+    uint64_t DeviceMaxWItemSizes[3];
   };
 }
 

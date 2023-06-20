@@ -77,7 +77,7 @@ llvm::Module *parseModuleIR(const char *path, llvm::LLVMContext *c) {
 void parseModuleGVarSize(cl_program program, unsigned device_i,
                          llvm::Module *ProgramBC) {
 
-  unsigned long TotalGVarBytes = 0;
+  uint64_t TotalGVarBytes = 0;
   if (!getModuleIntMetadata(*ProgramBC, PoclGVarMDName, TotalGVarBytes))
     return;
 
@@ -86,7 +86,7 @@ void parseModuleGVarSize(cl_program program, unsigned device_i,
       assert(program->global_var_total_size[device_i] == TotalGVarBytes);
     else
       program->global_var_total_size[device_i] = TotalGVarBytes;
-    POCL_MSG_PRINT_LLVM("Total Global Variable Bytes: %zu\n", TotalGVarBytes);
+    POCL_MSG_PRINT_LLVM("Total Global Variable Bytes: %llu\n", TotalGVarBytes);
   }
 }
 
@@ -477,7 +477,7 @@ void pocl_llvm_release_context(cl_context ctx) {
 
 #define POCL_METADATA_ROOT "pocl_meta"
 
-void setModuleIntMetadata(llvm::Module *mod, const char *key, unsigned long data) {
+void setModuleIntMetadata(llvm::Module *mod, const char *key, uint64_t data) {
 
   llvm::Metadata *meta[] = {MDString::get(mod->getContext(), key),
                             llvm::ConstantAsMetadata::get(ConstantInt::get(
@@ -513,7 +513,7 @@ void setModuleBoolMetadata(llvm::Module *mod, const char *key, bool data) {
 }
 
 bool getModuleIntMetadata(const llvm::Module &mod, const char *key,
-                          unsigned long &data) {
+                          uint64_t &data) {
   NamedMDNode *Root = mod.getNamedMetadata(POCL_METADATA_ROOT);
   if (!Root)
     return false;
@@ -568,7 +568,7 @@ bool getModuleStringMetadata(const llvm::Module &mod, const char *key,
 
 bool getModuleBoolMetadata(const llvm::Module &mod, const char *key,
                            bool &data) {
-  unsigned long temporary;
+  uint64_t temporary;
   bool found = getModuleIntMetadata(mod, key, temporary);
   if (found) {
     data = temporary > 0;

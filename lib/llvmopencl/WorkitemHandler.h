@@ -71,15 +71,15 @@ namespace pocl {
 
     // Copies of compilation parameters
     std::string KernelName;
-    unsigned long address_bits;
+    uint64_t address_bits;
     bool WGAssumeZeroGlobalOffset;
     bool WGDynamicLocalSize;
     bool DeviceUsingArgBufferLauncher;
     bool DeviceIsSPMD;
-    unsigned long WGLocalSizeX;
-    unsigned long WGLocalSizeY;
-    unsigned long WGLocalSizeZ;
-    unsigned long WGMaxGridDimWidth;
+    uint64_t WGLocalSizeX;
+    uint64_t WGLocalSizeY;
+    uint64_t WGLocalSizeZ;
+    uint64_t WGMaxGridDimWidth;
   };
 
   extern llvm::cl::opt<bool> AddWIMetadata;
